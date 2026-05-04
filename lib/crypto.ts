@@ -73,9 +73,9 @@ export async function deriveKeyFromPassword(
     ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    {
+{
       name: 'PBKDF2',
-      salt, 
+      salt: salt as unknown as BufferSource, 
       iterations: 310000,
       hash: 'SHA-256',
     },
