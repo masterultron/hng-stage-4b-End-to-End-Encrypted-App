@@ -42,6 +42,7 @@ api.interceptors.response.use(
 
 export async function register(payload: {
   username: string;
+  display_name: string;   // <-- add this
   password: string;
   public_key: string;
   wrapped_private_key: string;
