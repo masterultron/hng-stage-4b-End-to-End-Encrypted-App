@@ -16,7 +16,8 @@ import { storePrivateKey, storeWrappedKeyIV } from '@/lib/storage';
 export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+const [displayName, setDisplayName] = useState('');
+const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -45,13 +46,14 @@ export default function RegisterPage() {
   wrapped_key_iv: iv,
 });
 const res = await register({
-        username,
-        password,
-        public_key: publicKeyB64,
-        wrapped_private_key: wrappedKey,
-        pbkdf2_salt: btoa(String.fromCharCode(...salt)),
-        wrapped_key_iv: iv,
-      });
+  username,
+  display_name: displayName,
+  password,
+  public_key: publicKeyB64,
+  wrapped_private_key: wrappedKey,
+  pbkdf2_salt: btoa(String.fromCharCode(...salt)),
+  wrapped_key_iv: iv,
+});
 
       // 5. Save tokens and user
       saveTokens(res.access_token, res.refresh_token);
@@ -92,18 +94,18 @@ const res = await register({
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Username
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                required
-                placeholder="yourname"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
-            </div>
+  <label className="block text-sm font-medium text-gray-300 mb-1.5">
+    Display Name
+  </label>
+  <input
+    type="text"
+    value={displayName}
+    onChange={e => setDisplayName(e.target.value)}
+    required
+    placeholder="Your Name"
+    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+  />
+</div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1.5">
                 Password
