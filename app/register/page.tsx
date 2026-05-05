@@ -36,8 +36,15 @@ export default function RegisterPage() {
       const salt = generateSalt();
       const { wrappedKey, iv } = await wrapPrivateKey(keyPair.privateKey, password, salt);
 
-      // 4. Register with server
-      const res = await register({
+      console.log('Sending to API:', {
+  username,
+  password,
+  public_key: publicKeyB64,
+  wrapped_private_key: wrappedKey,
+  pbkdf2_salt: btoa(String.fromCharCode(...salt)),
+  wrapped_key_iv: iv,
+});
+const res = await register({
         username,
         password,
         public_key: publicKeyB64,
@@ -135,5 +142,6 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+    
   );
 }
