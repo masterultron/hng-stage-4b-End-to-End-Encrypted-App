@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { toast } from 'sonner';
+import { Eye, EyeOff, Lock } from 'lucide-react';
 import { login } from '@/lib/api';
 import { saveTokens, saveUser } from '@/lib/tokens';
 import { unwrapPrivateKey } from '@/lib/crypto';
@@ -12,42 +14,27 @@ export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [debugLog, setDebugLog] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  // On mount, restore any error/debug from a previous (refreshed) attempt
   useEffect(() => {
-    const stashedError = sessionStorage.getItem('login_error');
     const stashedDebug = sessionStorage.getItem('login_debug');
-    if (stashedError) {
-      setError(stashedError);
-      sessionStorage.removeItem('login_error');
-    }
     if (stashedDebug) {
       setDebugLog(stashedDebug);
       sessionStorage.removeItem('login_debug');
     }
   }, []);
 
-  // Persist a debug message that survives page refresh
   const stashDebug = (msg: string) => {
     const existing = sessionStorage.getItem('login_debug') || '';
-    const next = existing + '\n' + msg;
-    sessionStorage.setItem('login_debug', next);
+    sessionStorage.setItem('login_debug', existing + '\n' + msg);
     console.log('[LOGIN]', msg);
-  };
-
-  const stashError = (msg: string) => {
-    sessionStorage.setItem('login_error', msg);
-    setError(msg);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setDebugLog('');
-    sessionStorage.removeItem('login_error');
     sessionStorage.removeItem('login_debug');
     setLoading(true);
 
@@ -55,7 +42,6 @@ export default function LoginPage() {
       stashDebug(`Step 1: calling login API with username="${username}"`);
       const res = await login({ username, password });
       stashDebug(`Step 1 OK. Response keys: ${Object.keys(res || {}).join(', ')}`);
-      stashDebug(`Full response: ${JSON.stringify(res)}`);
 
       if (!res?.access_token || !res?.refresh_token) {
         throw new Error('Login response missing access_token or refresh_token');
@@ -64,7 +50,6 @@ export default function LoginPage() {
         throw new Error('Login response missing user.id');
       }
 
-      stashDebug('Step 2: saving tokens + user');
       saveTokens(res.access_token, res.refresh_token);
       saveUser({
         id: res.user.id,
@@ -72,69 +57,39 @@ export default function LoginPage() {
         public_key: res.user.public_key,
       });
 
-      // 3. Pull crypto fields — server first, IndexedDB fallback for IV (same-device)
-      const wrappedPrivateKey =
-        res.user?.wrapped_private_key ?? res.wrapped_private_key;
+      const wrappedPrivateKey = res.user?.wrapped_private_key ?? res.wrapped_private_key;
       const pbkdf2SaltB64 = res.user?.pbkdf2_salt ?? res.pbkdf2_salt;
       let iv = res.user?.wrapped_key_iv ?? res.wrapped_key_iv;
 
-      // Backend currently doesn't return wrapped_key_iv — fall back to the
-      // IV stored locally during registration on this device.
       if (!iv) {
-        stashDebug('IV missing from server, trying IndexedDB fallback...');
         try {
           iv = await getWrappedKeyIV(res.user.id);
-          stashDebug(`IndexedDB IV fallback: ${iv ? 'found' : 'not found'}`);
-        } catch (fallbackErr: any) {
-          stashDebug(`IndexedDB fallback threw: ${fallbackErr?.message}`);
-        }
+        } catch {}
       }
-
-      stashDebug(
-        `Step 3: crypto fields — wrappedPrivateKey=${!!wrappedPrivateKey}, salt=${!!pbkdf2SaltB64}, iv=${!!iv}`
-      );
 
       if (!wrappedPrivateKey || !pbkdf2SaltB64 || !iv) {
         throw new Error(
           !iv
-            ? 'Cannot decrypt your keys on this device. Please log in from the browser where you registered, or ask the backend team to add wrapped_key_iv to the /auth/login response.'
-            : 'Server did not return wrapped key material on login. The backend /auth/login response needs to include wrapped_private_key, pbkdf2_salt, and wrapped_key_iv.'
+            ? 'Cannot decrypt your keys on this device. Please log in from the browser where you registered.'
+            : 'Server did not return wrapped key material.'
         );
       }
 
-      stashDebug('Step 4: decoding salt and unwrapping private key');
       const salt = Uint8Array.from(atob(pbkdf2SaltB64), (c) => c.charCodeAt(0));
-      const privateKey = await unwrapPrivateKey(
-        wrappedPrivateKey,
-        iv,
-        password,
-        salt
-      );
-      stashDebug('Step 4 OK: private key unwrapped');
+      const privateKey = await unwrapPrivateKey(wrappedPrivateKey, iv, password, salt);
 
-      stashDebug('Step 5: storing private key in IndexedDB');
       await storePrivateKey(res.user.id, privateKey);
       await storeWrappedKeyIV(res.user.id, iv);
-      stashDebug('Step 5 OK');
 
-      // Clear debug since we're successful
       sessionStorage.removeItem('login_debug');
+      toast.success('Welcome back!');
       router.push('/dashboard');
     } catch (err: any) {
-      const status = err?.response?.status;
       const data = err?.response?.data;
-      const msg =
-        data?.message ||
-        data?.detail ||
-        err?.message ||
-        'Login failed.';
-
-      stashDebug(
-        `ERROR: ${msg} | status=${status} | data=${JSON.stringify(data)}`
-      );
-      stashError(msg);
+      const msg = data?.message || data?.detail || err?.message || 'Login failed.';
+      stashDebug(`ERROR: ${msg}`);
+      toast.error(msg);
       console.error('[LOGIN ERROR]', err);
-      console.error('[LOGIN ERROR response]', data);
     } finally {
       setLoading(false);
     }
@@ -144,8 +99,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">🔐</span>
+          <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+            <Lock className="w-7 h-7 text-white" strokeWidth={2} />
           </div>
           <h1 className="text-2xl font-bold text-white">WhisperBox</h1>
           <p className="text-gray-400 text-sm mt-1">End-to-end encrypted messaging</p>
@@ -154,52 +109,50 @@ export default function LoginPage() {
         <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
           <h2 className="text-lg font-semibold text-white mb-6">Welcome back</h2>
 
-          {error && (
-            <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3 mb-4 whitespace-pre-line">
-              {error}
-            </div>
-          )}
-
           {debugLog && (
             <details className="mb-4 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-xs text-gray-300">
-              <summary className="cursor-pointer text-gray-400">
-                Debug log (click to expand)
-              </summary>
+              <summary className="cursor-pointer text-gray-400">Debug log</summary>
               <pre className="mt-2 whitespace-pre-wrap break-all">{debugLog}</pre>
             </details>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Username
-              </label>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Username</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 placeholder="yourname"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-colors"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-              />
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 pr-10 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition-colors text-sm"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition-colors text-sm shadow-sm"
             >
               {loading ? 'Decrypting keys...' : 'Log in'}
             </button>
@@ -207,7 +160,7 @@ export default function LoginPage() {
 
           <p className="text-center text-sm text-gray-500 mt-4">
             New to WhisperBox?{' '}
-            <Link href="/register" className="text-indigo-400 hover:text-indigo-300">
+            <Link href="/register" className="text-indigo-400 hover:text-indigo-300 transition-colors">
               Create account
             </Link>
           </p>

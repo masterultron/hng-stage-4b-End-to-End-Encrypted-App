@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getUser, getAccessToken, clearSession, getRefreshToken } from '@/lib/tokens';
 import { getPrivateKey } from '@/lib/storage';
+import { toast } from 'sonner';
 import {
   getConversations,
   getMessages,
@@ -38,6 +39,13 @@ interface User {
   username: string;
   public_key: string;
 }
+
+// Reusable Lock Icon Component for clean code
+const LockIcon = ({ className }: { className?: string }) => (
+  <svg className={className || "w-4 h-4"} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  </svg>
+);
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -116,6 +124,7 @@ export default function DashboardPage() {
               .catch(console.error);
           } catch {
             setMessages(prev => [...prev, { ...msg, decrypted: '[Failed to decrypt]' }]);
+            toast.error('Could not decrypt a message');
           }
         }
       } catch {
@@ -168,6 +177,7 @@ export default function DashboardPage() {
       setMessages(decrypted);
     } catch (err) {
       console.error('Failed to load messages', err);
+      toast.error('Failed to load messages');
     } finally {
       setLoading(false);
     }
@@ -210,22 +220,23 @@ export default function DashboardPage() {
       setInput('');
     } catch (err) {
       console.error('Send failed', err);
+      toast.error('Failed to send message');
     } finally {
       setSending(false);
     }
   };
 
-  // Search users — backend returns a plain array, not { users: [...] }
+  // Search users
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
     const t = setTimeout(async () => {
       try {
         const data = await searchUsers(searchQ);
         const arr = Array.isArray(data) ? data : (data?.users || data?.results || []);
-        // Filter out the current user — no point searching for yourself
         setSearchResults(arr.filter((u: any) => u.id !== user?.id));
       } catch (err: any) {
         console.error('[SEARCH] failed:', err.response?.status, err.response?.data);
+        toast.error('Search failed');
         setSearchResults([]);
       }
     }, 400);
@@ -272,8 +283,8 @@ export default function DashboardPage() {
         <div className="p-4 border-b border-gray-800">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-sm">
-                🔐
+              <div className="w-8 h-8 bg-indigo-600/20 text-indigo-500 rounded-lg flex items-center justify-center">
+                <LockIcon className="w-4 h-4" />
               </div>
               <span className="font-semibold text-white text-sm">WhisperBox</span>
             </div>
@@ -297,20 +308,25 @@ export default function DashboardPage() {
           </div>
 
           <div className="relative">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+              <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
             <input
               type="text"
               value={searchQ}
               onChange={e => setSearchQ(e.target.value)}
               placeholder="Find people..."
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
             />
             {searchResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden z-10">
+              <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden z-10 shadow-xl">
                 {searchResults.map(u => (
                   <button
                     key={u.id}
                     onClick={() => startChat(u)}
-                    className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-white transition-colors flex items-center gap-2"
+                    className="w-full text-left px-3 py-2.5 hover:bg-gray-700 text-sm text-white transition-colors flex items-center gap-3"
                   >
                     <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold">
                       {u.username[0].toUpperCase()}
@@ -340,10 +356,11 @@ export default function DashboardPage() {
                 <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                   {conv.username[0].toUpperCase()}
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">{conv.username}</p>
-                  <p className="text-xs text-gray-500 flex items-center gap-1">
-                    <span>🔒</span> Encrypted
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-white truncate">{conv.username}</p>
+                  <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                    <LockIcon className="w-3 h-3 text-gray-500" />
+                    Encrypted
                   </p>
                 </div>
               </button>
@@ -353,15 +370,17 @@ export default function DashboardPage() {
       </aside>
 
       {/* ── Chat Area ────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 relative">
         {!activeConv ? (
-          <div className="flex-1 flex items-center justify-center text-center px-4">
-            <div>
-              <div className="text-4xl mb-4">🔐</div>
-              <h2 className="text-white font-semibold text-lg mb-2">
+          <div className="flex-1 flex items-center justify-center text-center px-4 bg-gray-950">
+            <div className="max-w-md">
+              <div className="w-16 h-16 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-gray-800 text-indigo-500 shadow-sm">
+                <LockIcon className="w-8 h-8" />
+              </div>
+              <h2 className="text-white font-medium text-lg mb-2">
                 End-to-End Encrypted Messaging
               </h2>
-              <p className="text-gray-500 text-sm max-w-xs">
+              <p className="text-gray-500 text-sm leading-relaxed">
                 Select a conversation or search for someone to start chatting.
                 All messages are encrypted before leaving your device.
               </p>
@@ -369,20 +388,20 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-3">
+            <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-3 shadow-sm z-10">
               <div className="w-9 h-9 rounded-full bg-indigo-500 flex items-center justify-center text-white text-sm font-bold">
                 {activeConv.username[0].toUpperCase()}
               </div>
               <div>
                 <p className="text-white font-medium text-sm">{activeConv.username}</p>
-                <p className="text-xs text-green-400 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full inline-block" />
+                <p className="text-xs text-green-400 flex items-center gap-1.5 mt-0.5">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full inline-block animate-pulse" />
                   End-to-end encrypted
                 </p>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-950">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-950">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
@@ -396,17 +415,18 @@ export default function DashboardPage() {
                   const isMine = msg.sender_id === user?.id;
                   return (
                     <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm ${
+                      <div className={`max-w-[70%] px-4 py-2.5 rounded-2xl text-sm shadow-sm ${
                         isMine
                           ? 'bg-indigo-600 text-white rounded-br-sm'
-                          : 'bg-gray-800 text-gray-100 rounded-bl-sm'
+                          : 'bg-gray-800 border border-gray-700 text-gray-100 rounded-bl-sm'
                       }`}>
-                        <p>{msg.decrypted}</p>
-                        <p className={`text-[10px] mt-1 flex items-center gap-1 ${
+                        <p className="leading-relaxed whitespace-pre-wrap">{msg.decrypted}</p>
+                        <div className={`text-[10px] mt-1.5 flex items-center justify-end gap-1 ${
                           isMine ? 'text-indigo-200' : 'text-gray-500'
                         }`}>
-                          🔒 {msg.created_at ? formatTime(msg.created_at) : 'now'}
-                        </p>
+                          {msg.created_at ? formatTime(msg.created_at) : 'now'}
+                          <LockIcon className="w-2.5 h-2.5 opacity-70" />
+                        </div>
                       </div>
                     </div>
                   );
@@ -417,9 +437,12 @@ export default function DashboardPage() {
 
             <div className="bg-gray-900 border-t border-gray-800 p-4">
               {!privateKey && (
-                <p className="text-amber-400 text-xs mb-2 text-center">
-                  ⚠️ Private key not loaded. Please log out and log back in.
-                </p>
+                <div className="flex items-center justify-center gap-2 text-amber-400 text-xs mb-3 bg-amber-400/10 py-2 rounded-lg border border-amber-400/20">
+                  <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Private key not loaded. Please log out and log back in.</span>
+                </div>
               )}
               <div className="flex items-center gap-3">
                 <input
@@ -429,17 +452,17 @@ export default function DashboardPage() {
                   onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
                   placeholder="Message (encrypted end-to-end)"
                   disabled={!privateKey || sending}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
                 />
                 <button
                   onClick={sendMessage}
                   disabled={!input.trim() || sending || !privateKey}
-                  className="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+                  className="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 shadow-sm"
                 >
                   {sending ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="22" y1="2" x2="11" y2="13" />
                       <polygon points="22 2 15 22 11 13 2 9 22 2" />
                     </svg>
