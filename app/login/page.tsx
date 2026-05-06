@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { login } from '@/lib/api';
 import { saveTokens, saveUser } from '@/lib/tokens';
 import { unwrapPrivateKey } from '@/lib/crypto';
-import { storePrivateKey, storeWrappedKeyIV } from '@/lib/storage';
+import { storePrivateKey, storeWrappedKeyIV, getWrappedKeyIV } from '@/lib/storage';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -72,11 +72,23 @@ export default function LoginPage() {
         public_key: res.user.public_key,
       });
 
-      // Pull crypto fields from either nesting
+      // 3. Pull crypto fields — server first, IndexedDB fallback for IV (same-device)
       const wrappedPrivateKey =
         res.user?.wrapped_private_key ?? res.wrapped_private_key;
       const pbkdf2SaltB64 = res.user?.pbkdf2_salt ?? res.pbkdf2_salt;
-      const iv = res.user?.wrapped_key_iv ?? res.wrapped_key_iv;
+      let iv = res.user?.wrapped_key_iv ?? res.wrapped_key_iv;
+
+      // Backend currently doesn't return wrapped_key_iv — fall back to the
+      // IV stored locally during registration on this device.
+      if (!iv) {
+        stashDebug('IV missing from server, trying IndexedDB fallback...');
+        try {
+          iv = await getWrappedKeyIV(res.user.id);
+          stashDebug(`IndexedDB IV fallback: ${iv ? 'found' : 'not found'}`);
+        } catch (fallbackErr: any) {
+          stashDebug(`IndexedDB fallback threw: ${fallbackErr?.message}`);
+        }
+      }
 
       stashDebug(
         `Step 3: crypto fields — wrappedPrivateKey=${!!wrappedPrivateKey}, salt=${!!pbkdf2SaltB64}, iv=${!!iv}`
@@ -84,7 +96,9 @@ export default function LoginPage() {
 
       if (!wrappedPrivateKey || !pbkdf2SaltB64 || !iv) {
         throw new Error(
-          'Server did not return wrapped key material on login. The backend /auth/login response needs to include wrapped_private_key, pbkdf2_salt, and wrapped_key_iv.'
+          !iv
+            ? 'Cannot decrypt your keys on this device. Please log in from the browser where you registered, or ask the backend team to add wrapped_key_iv to the /auth/login response.'
+            : 'Server did not return wrapped key material on login. The backend /auth/login response needs to include wrapped_private_key, pbkdf2_salt, and wrapped_key_iv.'
         );
       }
 
