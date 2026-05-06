@@ -39,6 +39,7 @@ const [password, setPassword] = useState('');
 
       console.log('Sending to API:', {
   username,
+  display_name: displayName,
   password,
   public_key: publicKeyB64,
   wrapped_private_key: wrappedKey,

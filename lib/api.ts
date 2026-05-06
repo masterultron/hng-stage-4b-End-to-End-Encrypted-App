@@ -15,16 +15,33 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Auto-refresh on 401
+// Auto-refresh on 401 — but skip auth endpoints (login/register/refresh)
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const url: string = original?.url || '';
+
+    // Don't try to refresh tokens for auth endpoints — they don't need one.
+    // A 401 on login means "wrong password", not "expired token".
+    const isAuthEndpoint =
+      url.includes('/auth/login') ||
+      url.includes('/auth/register') ||
+      url.includes('/auth/refresh');
+
+    if (
+      error.response?.status === 401 &&
+      !original._retry &&
+      !isAuthEndpoint
+    ) {
       original._retry = true;
       try {
         const refreshToken = getRefreshToken();
-        const res = await axios.post(`${BASE}/auth/refresh`, { refresh_token: refreshToken });
+        if (!refreshToken) throw new Error('No refresh token');
+
+        const res = await axios.post(`${BASE}/auth/refresh`, {
+          refresh_token: refreshToken,
+        });
         const { access_token, refresh_token } = res.data;
         saveTokens(access_token, refresh_token);
         original.headers.Authorization = `Bearer ${access_token}`;
@@ -42,7 +59,7 @@ api.interceptors.response.use(
 
 export async function register(payload: {
   username: string;
-  display_name: string;   // <-- add this
+  display_name: string;
   password: string;
   public_key: string;
   wrapped_private_key: string;
