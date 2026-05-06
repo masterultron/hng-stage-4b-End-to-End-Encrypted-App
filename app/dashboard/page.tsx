@@ -215,17 +215,22 @@ export default function DashboardPage() {
     }
   };
 
-  // Search users
+  // Search users — backend returns a plain array, not { users: [...] }
   useEffect(() => {
     if (!searchQ.trim()) { setSearchResults([]); return; }
     const t = setTimeout(async () => {
       try {
         const data = await searchUsers(searchQ);
-        setSearchResults(data.users || []);
-      } catch { setSearchResults([]); }
+        const arr = Array.isArray(data) ? data : (data?.users || data?.results || []);
+        // Filter out the current user — no point searching for yourself
+        setSearchResults(arr.filter((u: any) => u.id !== user?.id));
+      } catch (err: any) {
+        console.error('[SEARCH] failed:', err.response?.status, err.response?.data);
+        setSearchResults([]);
+      }
     }, 400);
     return () => clearTimeout(t);
-  }, [searchQ]);
+  }, [searchQ, user?.id]);
 
   // Start new conversation
   const startChat = async (found: any) => {
